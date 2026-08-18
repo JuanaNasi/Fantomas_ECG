@@ -43,6 +43,7 @@ Esta etapa permitió comprobar que no era suficiente con que las señales se vis
 
 ## Quinta etapa: incorporación de nuevos bancos de señales y control mediante botones.
 Una vez comprobado el funcionamiento de la Raspberry Pi Pico junto con la placa electrónica, se avanzó en la ampliación de las señales disponibles en el simulador. Hasta ese momento se trabajaba con un único banco de datos, por lo que el dispositivo reproducía siempre el mismo registro electrocardiográfico. El objetivo de esta etapa fue incorporar diferentes condiciones cardíacas y permitir que el usuario pudiera seleccionarlas directamente desde la placa.
+
 ### Obtención de nuevos registros electrocardiográficos
 Para incorporar nuevas señales se utilizó la base de datos PTB-XL, disponible públicamente en la plataforma PhysioNet. Se trata de una base de datos de electrocardiogramas clínicos de 12 derivaciones, con registros de 10 segundos de duración. PhysioNet proporciona los registros originales a 500 Hz (records500) y una versión reducida a 100 Hz (records100), que fue la utilizada para este desarrollo. La base también incluye el archivo ptbxl_database.csv, donde se encuentra la información asociada a cada ECG y su clasificación diagnóstica.
 Dentro de PTB-XL, los diagnósticos se agrupan en cinco grandes superclases: NORMAL (ECG normal), MI (infarto de miocardio), STTC (cambios del segmento ST y/o de la onda T), CD (trastornos de conducción) y HYP (hipertrofia). Estas cinco categorías fueron tomadas como referencia para conformar los cinco bancos del simulador.
@@ -53,7 +54,9 @@ De cada categoría se seleccionó un registro:
 - Banco 2 – Cambios ST/T (STTC): registro 00022_lr.
 - Banco 3 – Trastorno de conducción (CD): registro 00180_lr.
 - Banco 4 – Hipertrofia (HYP): registro 00138_lr.
+
 Los archivos originales contienen las doce derivaciones convencionales. Sin embargo, como la placa desarrollada dispone de ocho canales de salida, se seleccionaron las derivaciones I, II, V1, V2, V3, V4, V5 y V6. De esta manera se conservaron dos derivaciones de los miembros y las seis derivaciones precordiales.
+
 ### Recorte y adaptación de las señales
 Como los registros utilizados provenían de records100, cada segundo de señal contenía 100 muestras, es decir, existía una separación temporal de 10 ms entre muestras. Los registros completos tenían una duración mayor a la necesaria para el funcionamiento del simulador, por lo que se decidió trabajar con un único latido representativo de cada condición.
 Para realizar el recorte se identificó aproximadamente la posición del pico R de cada registro y se conservaron 80 muestras por banco, tomando 25 muestras anteriores al pico R y 55 muestras a partir de esa zona posterior. De esta manera, cada banco quedó constituido por un fragmento de aproximadamente 0,8 segundos.
@@ -63,18 +66,25 @@ Los recortes utilizados fueron:
 - STTC – 00022_lr: pico R aproximadamente en la muestra 243; se utilizaron aproximadamente las muestras 218 a 297.
 - CD – 00180_lr: pico R aproximadamente en la muestra 512; se utilizaron aproximadamente las muestras 487 a 566.
 - HYP – 00138_lr: pico R aproximadamente en la muestra 721; se utilizaron aproximadamente las muestras 696 a 775.
+
 El mismo intervalo temporal fue utilizado para las ocho derivaciones de cada registro, manteniendo así la sincronización entre todos los canales.
 Además del recorte, los valores originales de las señales debieron adaptarse al rango utilizado por las salidas PWM de la Raspberry Pi Pico. Para esto se realizó un escalado de los datos tomando como valor de línea de base 30000 y aplicando la relación:
+
 valor PWM = 30000 + 4000 × señal ECG centrada
+
 Finalmente, los valores se limitaron al rango de 0 a 60000, compatible con la función utilizada para controlar las salidas PWM. Todos los datos procesados se almacenaron en el archivo ECGBancos_PTBXL_recortado.h, organizados como matrices de 80 muestras × 8 canales.
+
 ### Lógica para el cambio de banco
 Una vez preparados los cinco bancos, se modificó el programa para que pudiera seleccionar cuál de ellos debía reproducirse. Para esto se incorporó una variable denominada Banco, cuyo valor podía variar entre 0 y 4.
 Los bancos quedaron organizados de la siguiente manera:
+
 0 Normal → 1 Infarto → 2 Cambios ST/T → 3 Trastorno de conducción → 4 Hipertrofia → 0 Normal
+
 El cambio se realizó mediante una tecla conectada al GPIO20. El pulsador se configuró como INPUT_PULLUP, por lo que normalmente la entrada permanece en estado alto (HIGH) y la pulsación se reconoce cuando pasa a estado bajo (LOW).
 Cada vez que se detecta una pulsación válida, el valor de Banco aumenta en una unidad. Al superar el último banco, vuelve automáticamente a cero. Además, cuando se produce un cambio de banco, el índice de lectura se reinicia para que la nueva señal comience desde el principio del latido.
 Durante el desarrollo fue necesario incorporar también un antirrebote de 200 ms. Esto evita que una única pulsación física sea interpretada por el microcontrolador como varios accionamientos consecutivos.
 El banco seleccionado se mostraba además mediante el Serial Monitor, lo que permitió verificar durante las pruebas que el pulsador estuviera siendo leído correctamente y que la secuencia de bancos coincidiera con la esperada.
+
 ### Incorporación del cambio de velocidad
 Posteriormente se incorporó una segunda tecla para modificar la velocidad o frecuencia con la que se repetían los latidos. En la versión del programa desarrollada en esta etapa, esta segunda entrada se encontraba configurada en el GPIO21.
 Una decisión importante fue mantener siempre el período original de muestreo de PTB-XL en 10 ms. De esta manera, el latido almacenado conserva su forma temporal y no se deforma al seleccionar otra velocidad.
@@ -83,9 +93,13 @@ Se establecieron tres modos:
 - Modo rápido: 80 muestras de señal y sin zona muerta adicional. Duración aproximada del ciclo: 0,8 s, equivalente a aproximadamente 75 latidos por minuto.
 - Modo normal: 80 muestras de señal más 20 muestras de línea de base. Duración aproximada: 1,0 s, equivalente a aproximadamente 60 latidos por minuto.
 - Modo lento: 80 muestras de señal más 60 muestras de línea de base. Duración aproximada: 1,4 s, equivalente a aproximadamente 43 latidos por minuto.
+
 El programa inicia en el modo normal y cada pulsación de la segunda tecla permite avanzar de forma cíclica entre los tres modos:
+
 Normal → Lento → Rápido → Normal
+
 Al igual que en el cambio de banco, se incorporó un antirrebote de 200 ms y el modo seleccionado se mostraba en el Serial Monitor durante las pruebas.
+
 ### Organización del funcionamiento en la Raspberry Pi Pico
 Para gestionar simultáneamente la generación de las señales y la lectura de los controles se aprovecharon los dos núcleos disponibles en la Raspberry Pi Pico. El ciclo principal se encargó de recorrer los datos del banco seleccionado y actualizar las ocho salidas PWM, mientras que el segundo núcleo se utilizó para controlar los botones y el LED indicador.
 Las ocho salidas PWM quedaron asignadas a los GPIO 0, 1, 2, 3, 4, 6, 7 y 8. El GPIO5, que anteriormente había generado inconvenientes en la correspondencia entre las salidas y el LED, quedó reservado exclusivamente para este último. El LED se programó para cambiar de estado cada 500 ms, funcionando como una indicación visual de que el programa continuaba ejecutándose.
