@@ -147,3 +147,96 @@ Las ocho salidas PWM quedaron asignadas a los GPIO 0, 1, 2, 3, 4, 6, 7 y 8. El G
 Durante las pruebas se continuó utilizando el Serial Plotter, enviando algunos de los canales generados para observar gráficamente las señales, mientras que el Serial Monitor permitió verificar los cambios de banco y de velocidad.
 
 Con estas modificaciones, el simulador pasó de reproducir un único ECG fijo a disponer de cinco condiciones electrocardiográficas diferentes y tres frecuencias de repetición, seleccionables mediante controles incorporados a la propia placa, sin necesidad de modificar y volver a cargar el programa para cada prueba.
+
+### Incorporación de LEDs indicadores
+
+Como parte de las modificaciones finales del prototipo se incorporaron LEDs indicadores con el objetivo de permitir una identificación visual inmediata del **banco de señales ECG seleccionado** y de la **velocidad de reproducción configurada**.
+
+Hasta esta etapa, el cambio de banco y de velocidad se realizaba mediante los pulsadores correspondientes, pero el usuario no contaba con una indicación visual directa del estado seleccionado. Por este motivo, se agregaron cinco LEDs para identificar los cinco bancos de señales y tres LEDs adicionales para indicar los tres modos de velocidad.
+
+Los LEDs no se conectaron directamente a los pulsadores, sino que cada uno fue asociado a un **GPIO independiente de la Raspberry Pi Pico**. De esta manera, el estado de los indicadores es controlado por software y siempre corresponde al banco o velocidad que se encuentra seleccionado.
+
+La conexión de cada LED se realizó utilizando el GPIO correspondiente como salida digital. Cada LED se conectó entre su GPIO de control y GND, utilizando una resistencia limitadora de corriente en serie. De esta forma, cuando el GPIO se coloca en estado `HIGH`, el LED correspondiente se enciende, mientras que con un estado `LOW` permanece apagado.
+
+#### LEDs indicadores de banco
+
+Se utilizaron cinco LEDs, uno para cada banco de señales ECG:
+
+| Banco | Señal representada | Color del LED | GPIO |
+|------|----------------------|---------------|------|
+| Banco 0 | Normal | Blanco | GPIO 11 |
+| Banco 1 | Infarto de miocardio | Amarillo | GPIO 12 |
+| Banco 2 | Cambios ST/T | Verde | GPIO 13 |
+| Banco 3 | Trastorno de conducción | Azul | GPIO 14 |
+| Banco 4 | Hipertrofia | Rojo | GPIO 15 |
+
+En el código, estos GPIO se agruparon mediante el siguiente arreglo:
+
+`PinesLedBanco = {11, 12, 13, 14, 15}`
+
+Cuando se produce una pulsación sobre la tecla de cambio de banco conectada al **GPIO 20**, la variable `Banco` incrementa su valor. Una vez realizado el cambio, se ejecuta la función `actualizarLedsBanco()`.
+
+Esta función primero apaga todos los LEDs correspondientes a los bancos y posteriormente enciende únicamente el asociado al banco seleccionado. De esta forma, solamente permanece encendido un LED de banco a la vez.
+
+La lógica implementada es:
+
+- Banco 0 → GPIO 11 encendido.
+- Banco 1 → GPIO 12 encendido.
+- Banco 2 → GPIO 13 encendido.
+- Banco 3 → GPIO 14 encendido.
+- Banco 4 → GPIO 15 encendido.
+
+Al alcanzar el último banco, una nueva pulsación vuelve al Banco 0, manteniendo el comportamiento cíclico utilizado anteriormente para la selección de señales.
+
+#### LEDs indicadores de velocidad
+
+También se incorporaron tres LEDs para indicar el modo de velocidad seleccionado:
+
+| Modo | Velocidad | Color del LED | GPIO |
+|------|-----------|---------------|------|
+| 0 | Rápida | Rojo | GPIO 27 |
+| 1 | Normal | Amarillo | GPIO 26 |
+| 2 | Lenta | Verde | GPIO 10 |
+
+En el programa, estos GPIO se agruparon de la siguiente manera:
+
+`PinesLedVelocidad = {27, 26, 10}`
+
+El cambio de velocidad se realiza mediante la tecla conectada al **GPIO 21**. Cada vez que se detecta una pulsación válida, se incrementa la variable `ModoVelocidad` y posteriormente se llama a la función `actualizarLedsVelocidad()`.
+
+Al igual que en el caso de los bancos, esta función apaga primero los tres LEDs de velocidad y luego enciende únicamente el correspondiente al modo actualmente seleccionado.
+
+La indicación queda de la siguiente manera:
+
+- Modo 0 → velocidad rápida → GPIO 27 encendido.
+- Modo 1 → velocidad normal → GPIO 26 encendido.
+- Modo 2 → velocidad lenta → GPIO 10 encendido.
+
+El programa inicia con `ModoVelocidad = 1`, por lo que al encender el dispositivo queda seleccionado inicialmente el **modo de velocidad normal** y se enciende el LED amarillo conectado al GPIO 26.
+
+#### LED general de funcionamiento
+
+Además de los LEDs de selección, se mantuvo el LED general conectado al **GPIO 5**, utilizado para indicar que el programa se encuentra ejecutándose correctamente.
+
+Este LED no permanece encendido de manera constante, sino que se configuró para realizar un parpadeo periódico. Su estado cambia cada **500 ms**, obteniéndose una indicación visual continua de que el microcontrolador se encuentra funcionando.
+
+El GPIO 5 se reservó exclusivamente para esta función. Debido a esto, las ocho salidas PWM utilizadas para generar las señales ECG se configuraron sobre los GPIO:
+
+`0, 1, 2, 3, 4, 6, 7 y 8`
+
+dejando libre el GPIO 5 para el LED de funcionamiento.
+
+#### Implementación en el programa
+
+Durante la inicialización se configuran todos los GPIO utilizados por los LEDs mediante `pinMode(..., OUTPUT)` y, en primera instancia, se colocan en estado `LOW`.
+
+Posteriormente se ejecutan las funciones:
+
+- `actualizarLedsBanco()`
+- `actualizarLedsVelocidad()`
+
+Esto permite que, desde el momento en que se inicia el dispositivo, los LEDs representen correctamente el estado inicial del sistema.
+
+La gestión de los pulsadores y de los LEDs se realiza dentro de `setup1()` y `loop1()`, mientras que la generación de las ocho señales ECG mediante PWM se mantiene en `setup()` y `loop()`. De esta manera, la lectura de los controles y la actualización de los indicadores se realizan de forma independiente de la reproducción de las muestras ECG.
+
+Con esta modificación, el dispositivo permite identificar de manera directa tanto la patología o señal seleccionada como la velocidad de reproducción, mejorando la interacción con el Fantoma ECG y evitando la necesidad de utilizar el monitor serie para conocer el estado actual del sistema.
